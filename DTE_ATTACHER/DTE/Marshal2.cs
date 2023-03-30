@@ -52,6 +52,5 @@ namespace DTE_ATTACHER.DTE
         [SuppressUnmanagedCodeSecurity]
         [System.Security.SecurityCritical]  // auto-generated
         private static extern void GetActiveObject(ref Guid rclsid, IntPtr reserved, [MarshalAs(UnmanagedType.Interface)] out Object ppunk);
-
     }
 }

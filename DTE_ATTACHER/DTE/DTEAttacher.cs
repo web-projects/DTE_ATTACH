@@ -33,7 +33,8 @@ namespace DTE_ATTACHER.DTE
 
         internal static DTE2 GetCurrent()
         {
-            DTE2 dte2 = (DTE2)Marshal2.GetActiveObject("VisualStudio.DTE.16.0"); // For VisualStudio 2019
+            //DTE2 dte2 = (DTE2)Marshal2.GetActiveObject("VisualStudio.DTE.16.0"); // For VisualStudio 2019
+            DTE2 dte2 = (DTE2)Marshal2.GetActiveObject("VisualStudio.DTE.17.0"); // For VisualStudio 2022
             return dte2;
         }
     }

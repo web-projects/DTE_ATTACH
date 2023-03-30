@@ -203,14 +203,14 @@ namespace DTE_ATTACHER
             if (processesPayload.Count() > index)
             {
                 processInPayload.AddRange(from value in processesPayload
-                    select processesPayload.ElementAt(index++).ProcessName);
+                                          select processesPayload.ElementAt(index++).ProcessName);
             }
-            
+
             index = 0;
             if (processesPayload.Count() > index)
             {
                 delaysInPayload.AddRange(from value in processesPayload
-                                     select processesPayload.ElementAt(index++).MsDelay);
+                                         select processesPayload.ElementAt(index++).MsDelay);
             }
             IEnumerable<Tuple<string, int>> targetProceses = processInPayload.Zip(delaysInPayload, (a, b) => Tuple.Create(a, b));
 
