@@ -30,4 +30,5 @@ This an application to Attach to VisualStudio Debugger.
    
 ### HISTORY ###
 
-* 202200519 - Initial repository
+* 20220519 - Initial repository
+* 20231017 - Added detection for existing attachment to debugger.

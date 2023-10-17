@@ -1,5 +1,6 @@
 ﻿using EnvDTE80;
 using System;
+using System.Diagnostics;
 using System.Linq;
 
 namespace DTE_ATTACHER.DTE
@@ -19,13 +20,21 @@ namespace DTE_ATTACHER.DTE
                 foreach (EnvDTE.Process process in processes.Cast<EnvDTE.Process>().Where(proc => proc.Name.IndexOf(targetProcess) != -1))
                 {
                     process.Attach();
-                    Console.WriteLine($"attached with PID {process.ProcessID}");
+                    DateTime dt = DateTime.Now;
+                    string timestamp = dt.ToString("hh:mm:ss");
+                    string processId = string.Format("{0}", process.ProcessID).PadLeft(5);
+                    Console.WriteLine($"attached with PID {processId} - [{timestamp}]");
                     result = true;
                 }
             }
-            catch
+            catch (System.Runtime.InteropServices.COMException ex)
             {
-
+                Debug.WriteLine($"ATTACH exception: {ex.Message}");
+                if (ex.Message.Equals("A debugger is already attached.", StringComparison.OrdinalIgnoreCase))
+                {
+                    result = true;
+                    Console.WriteLine("DEBUGGER IS ALREADY ATTACHED.");
+                }
             }
 
             return result;
