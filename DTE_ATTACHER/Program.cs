@@ -1,4 +1,5 @@
-﻿using DTE_ATTACHER.DTE;
+﻿using DTE_ATTACHER.Config;
+using DTE_ATTACHER.DTE;
 using DTE_ATTACHER.Helpers;
 using Microsoft.Extensions.Configuration;
 using System;
@@ -7,30 +8,62 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Reflection;
-using System.Threading;
+using System.Runtime.InteropServices;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Threading.Tasks;
 
 namespace DTE_ATTACHER
 {
     class Program
     {
+        #region --- Win32 API ---
+        [StructLayout(LayoutKind.Sequential)]
+        public struct Rect
+        {
+            public int Left;        // x position of upper-left corner
+            public int Top;         // y position of upper-left corner
+            public int Right;       // x position of lower-right corner
+            public int Bottom;      // y position of lower-right corner
+        }
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        static extern IntPtr GetConsoleWindow();
+
+        [DllImport("user32.dll", SetLastError = true)]
+        internal static extern bool MoveWindow(IntPtr hWnd, int X, int Y, int nWidth, int nHeight, bool bRepaint);
+
+        [DllImport("user32.dll", EntryPoint = "GetWindowPos")]
+        public static extern UInt32 GetWindowLong(IntPtr hWnd, int nIndex);
+
+        [DllImport("user32.dll", EntryPoint = "SetWindowPos")]
+        public static extern IntPtr SetWindowPos(IntPtr hWnd, int hWndInsertAfter, int x, int Y, int cx, int cy, int wFlags);
+
+        [DllImport("user32.dll")]
+        public static extern bool GetWindowRect(IntPtr hwnd, ref Rect rectangle);
+
+        #endregion --- Win32 API ---
+
+
         static void Main(string[] args)
         {
             Console.WriteLine($"\r\n==========================================================================================");
             Console.WriteLine($"{Assembly.GetEntryAssembly().GetName().Name} - Version {Assembly.GetEntryAssembly().GetName().Version}");
             Console.WriteLine($"==========================================================================================\r\n");
 
-            IConfiguration configuration = ConfigurationLoad();
+            AppConfig configuration = ConfigurationLoad();
 
-            ClearFileContents(LoadApplicationClearLog(configuration));
-            IEnumerable<Tuple<string, int>> processesList = LoadProcessesGroup(configuration, 0);
+            // Restore window position
+            RestoreWindowPosition(configuration);
+
+            ClearFileContents(configuration.Application.ClearLogFile);
 
             ConsoleKeyInfo keyPressed = new ConsoleKeyInfo();
 
             do
             {
                 //Task<bool> taskResult = LoadDebuggerAutomationAsTask(processesList);
-                bool escapeKeyPressed = LoadDebuggerAutomationAsMethod(processesList);
+                bool escapeKeyPressed = LoadDebuggerAutomationAsMethod(configuration.Processes);
 
                 //if (taskResult.Result == false)
                 if (!escapeKeyPressed)
@@ -45,6 +78,9 @@ namespace DTE_ATTACHER
                 }
 
             } while (keyPressed.Key != ConsoleKey.Escape);
+
+            // save window position
+            SaveWindowPosition(configuration);
         }
 
         static void ClearFileContents(string path)
@@ -76,13 +112,13 @@ namespace DTE_ATTACHER
 
         #region --- AS METHODS ---
 
-        static bool LoadDebuggerAutomationAsMethod(IEnumerable<Tuple<string, int>> processesList)
+        static bool LoadDebuggerAutomationAsMethod(List<ProcessesList> processesList)
         {
             bool escapeKeyPressed = false;
 
-            foreach ((string targetProcess, int delay) in processesList)
+            foreach (ProcessesList process in processesList)
             {
-                escapeKeyPressed = AttacherAsMethod(targetProcess, delay);
+                escapeKeyPressed = AttacherAsMethod(process.Name, process.MSDelay);
                 if (escapeKeyPressed)
                 {
                     break;
@@ -101,7 +137,7 @@ namespace DTE_ATTACHER
 
             while (!DTEAttacher.Attach(targetProcess))
             {
-                Thread.Sleep(delay);
+                System.Threading.Thread.Sleep(delay);
                 if (Console.KeyAvailable)
                 {
                     ConsoleKeyInfo keyPressed = Console.ReadKey(true);
@@ -130,7 +166,7 @@ namespace DTE_ATTACHER
 
                 while (!DTEAttacher.Attach(targetProcess))
                 {
-                    Thread.Sleep(100);
+                    System.Threading.Thread.Sleep(100);
                     if (Console.KeyAvailable)
                     {
                         ConsoleKeyInfo keyPressed = Console.ReadKey(true);
@@ -169,59 +205,73 @@ namespace DTE_ATTACHER
         }
         #endregion --- AS TASKS ---
 
-        static IConfiguration ConfigurationLoad()
+        static AppConfig ConfigurationLoad()
         {
+            string appSettingsPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "appsettings.json");
+
             // Get appsettings.json config.
-            IConfiguration configuration = new ConfigurationBuilder()
-                .AddJsonFile("appsettings.json", optional: true, reloadOnChange: true)
+            AppConfig configuration = new ConfigurationBuilder()
+                .AddJsonFile(appSettingsPath, optional: true, reloadOnChange: true)
                 .AddEnvironmentVariables()
-                .Build();
+                .Build()
+                .Get<AppConfig>();
 
             return configuration;
         }
 
-        static string LoadApplicationClearLog(IConfiguration configuration)
+        static void RestoreWindowPosition(AppConfig configuration)
         {
-            return configuration.GetValue<string>("Application:ClearLogFile");
+            IntPtr ptr = GetConsoleWindow();
+
+            Rect parentWindowRectangle = new Rect()
+            {
+                Top = Convert.ToInt16(configuration.Application.WindowPosition.Top),
+                Left = Convert.ToInt16(configuration.Application.WindowPosition.Left),
+                Right = Convert.ToInt16(configuration.Application.WindowPosition.Width),
+                Bottom = Convert.ToInt16(configuration.Application.WindowPosition.Height),
+            };
+
+            // int X, int Y, int nWidth, int nHeight
+            MoveWindow(ptr, 
+                       parentWindowRectangle.Left, parentWindowRectangle.Top, 
+                       parentWindowRectangle.Right, parentWindowRectangle.Bottom,
+                       true);
         }
 
-        static IEnumerable<Tuple<string, int>> LoadProcessesGroup(IConfiguration configuration, int index)
+        static void SaveWindowPosition(AppConfig configuration)
         {
-            var processesPayload = configuration.GetSection("Processes")
-                    .GetChildren()
-                    .ToList()
-                    .Select(x => new
-                    {
-                        ProcessName = x.GetValue<string>("Name"),
-                        MsDelay = x.GetValue<int>("MsDelay"),
-                    });
+            IntPtr ptr = GetConsoleWindow();
+            Rect parentWindowRectangle = new Rect();
+            GetWindowRect(ptr, ref parentWindowRectangle);
 
-            // Is there a matching item?
-            List<string> processInPayload = new List<string>();
-            List<int> delaysInPayload = new List<int>();
+            configuration.Application.WindowPosition.Top = Convert.ToString(parentWindowRectangle.Top);
+            configuration.Application.WindowPosition.Left = Convert.ToString(parentWindowRectangle.Left);
+            configuration.Application.WindowPosition.Height = Convert.ToString(parentWindowRectangle.Bottom -parentWindowRectangle.Top);
+            configuration.Application.WindowPosition.Width = Convert.ToString(parentWindowRectangle.Right - parentWindowRectangle.Left);
 
-            if (processesPayload.Count() > index)
+            AppSettingsUpdate(configuration);
+        }
+
+        static void AppSettingsUpdate(AppConfig configuration)
+        {
+            try
             {
-                processInPayload.AddRange(from value in processesPayload
-                                          select processesPayload.ElementAt(index++).ProcessName);
-            }
+                var jsonWriteOptions = new JsonSerializerOptions()
+                {
+                    WriteIndented = true
+                };
+                jsonWriteOptions.Converters.Add(new JsonStringEnumConverter());
 
-            index = 0;
-            if (processesPayload.Count() > index)
+                string newJson = JsonSerializer.Serialize(configuration, jsonWriteOptions);
+                Debug.WriteLine($"{newJson}");
+
+                string appSettingsPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "appsettings.json");
+                File.WriteAllText(appSettingsPath, newJson);
+            }
+            catch (Exception ex)
             {
-                delaysInPayload.AddRange(from value in processesPayload
-                                         select processesPayload.ElementAt(index++).MsDelay);
+                Console.WriteLine($"Exception in saving settings: {ex}");
             }
-            IEnumerable<Tuple<string, int>> targetProceses = processInPayload.Zip(delaysInPayload, (a, b) => Tuple.Create(a, b));
-
-            Console.WriteLine("LIST OF PROCESSES TO ATTACH TO VS DEBUGGER\r\n");
-            foreach ((string process, int delay) in targetProceses)
-            {
-                Console.WriteLine($"{process} - delay: {delay} ms.");
-            }
-            Console.WriteLine("");
-
-            return targetProceses;
         }
     }
 }
