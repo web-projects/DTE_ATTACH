@@ -44,7 +44,6 @@ namespace DTE_ATTACHER
 
         #endregion --- Win32 API ---
 
-
         static void Main(string[] args)
         {
             Console.WriteLine($"\r\n==========================================================================================");
